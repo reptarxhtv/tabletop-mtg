@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1115">
+<title>Tabletop</title>
+<link rel="stylesheet" href="/static/style.css?v=6.5">
+</head>
+<body>
+
+<!-- Connect screen -->
+<section id="connect">
+  <h1>Tabletop</h1>
+  <p class="mut">Pick what this device is.</p>
+  <label for="room-input">Room code</label>
+  <input id="room-input" maxlength="24" autocomplete="off" autocapitalize="off" spellcheck="false" value="table">
+  <div class="bigbtns">
+    <button id="btn-board" class="primary big">Board<small>tablet</small></button>
+    <button id="btn-hand" class="primary big">Hand<small>phone</small></button>
+  </div>
+</section>
+
+<!-- Phone: hand -->
+<section id="hand-view" hidden>
+  <header class="bar">
+    <span class="dot"></span>
+    <span id="h-lib" class="mut">Lib 0</span>
+    <span class="drawgrp">
+      <button id="h-draw">Draw</button>
+      <select id="h-x" aria-label="How many cards to draw">
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+        <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+      </select>
+    </span>
+    <button id="h-turn" aria-label="Turn counter: tap to add one, hold for more">Turn <b id="h-turn-n">0</b></button>
+    <button id="h-untap">Untap</button>
+    <button id="h-next" class="primary" aria-label="Next turn: add a turn, untap all and draw a card">Next &#9656;</button>
+    <button id="h-menu" aria-label="Menu">&#8943;</button>
+  </header>
+  <div id="h-banner" hidden></div>
+  <div id="hand"></div>
+  <div id="h-mull" hidden></div>
+  <footer class="hint">swipe &#8596; browse &middot; swipe &#8593; play &middot; tap for actions</footer>
+</section>
+
+<!-- Tablet: board -->
+<section id="board-view" hidden>
+  <div id="main">
+    <div id="field">
+      <div id="empty-state"><button id="b-new" class="primary big">New game</button></div>
+      <div id="lookflag" hidden></div>
+      <div id="drawflag"></div>
+      <div id="czones"></div>
+    </div>
+    <div id="handbar">
+      <span class="hlabel">&#9995; &times;<b id="hb-n">0</b></span>
+      <div id="hb-cards"></div>
+      <div id="turnbar">
+        <button id="t-undo" aria-label="Undo the last move" disabled>&#8630; Undo <b id="t-undo-n">0</b></button>
+        <button id="t-untap">Untap all</button>
+        <button id="t-turn" aria-label="Turn counter: tap to add one, hold for more">Turn <b id="t-n">0</b></button>
+        <button id="t-next" class="primary">Next turn</button>
+      </div>
+    </div>
+  </div>
+  <aside id="side">
+    <div class="row">
+      <div class="cmdslot">
+        <div class="zlabel"><span>Commander 1</span></div>
+        <div class="slot" id="cmd0"></div>
+        <div class="tax"><button data-slot="0" data-d="-2">&minus;</button><span>Tax <b id="tax0">0</b></span><button data-slot="0" data-d="2">+</button></div>
+      </div>
+      <div class="cmdslot">
+        <div class="zlabel"><span>Commander 2</span></div>
+        <div class="slot" id="cmd1"></div>
+        <div class="tax"><button data-slot="1" data-d="-2">&minus;</button><span>Tax <b id="tax1">0</b></span><button data-slot="1" data-d="2">+</button></div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="zone">
+        <div class="zlabel"><span>Graveyard</span><span id="n-graveyard">0</span></div>
+        <div class="slot" id="z-graveyard"></div>
+      </div>
+      <div class="zone">
+        <div class="zlabel"><span>Exile</span><span id="n-exile">0</span></div>
+        <div class="slot" id="z-exile"><div class="xhalf up" id="x-up"></div><div class="xhalf dn" id="x-down"></div></div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="zone">
+        <div class="zlabel"><span>Library</span><span id="n-library">0</span></div>
+        <div class="slot" id="z-library"></div>
+      </div>
+      <div class="panel">
+        <div><span class="dot"></span> <span id="b-room" class="mut"></span> <span class="mut ver">v6.5</span></div>
+        <button id="b-menu">&#9776; Menu</button>
+      </div>
+    </div>
+  </aside>
+</section>
+
+<script src="/static/app.js?v=6.5"></script>
+</body>
+</html>

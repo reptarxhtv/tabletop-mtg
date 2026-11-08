@@ -1,0 +1,12 @@
+# Render "Blueprint": tells Render how to run this app for free. Render reads this file from your GitHub repo.
+services:
+  - type: web
+    name: tabletop-mtg
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    healthCheckPath: /healthz
+    envVars:
+      - key: ROOM_PASSWORD
+        sync: false        # Render asks you for this value when you create the service: pick a password for your table

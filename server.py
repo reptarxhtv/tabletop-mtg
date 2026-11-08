@@ -8,7 +8,6 @@ state to the data/ folder after every change so a crash or restart never
 loses the table.
 """
 import asyncio
-import hmac
 import json
 import logging
 import os
@@ -27,8 +26,6 @@ ROOT = Path(__file__).parent
 STATIC = ROOT / "static"
 DATA = Path(os.environ.get("TT_DATA") or (ROOT / "data"))
 PORT = int(os.environ.get("PORT", "8080"))
-# When this is set (an online server), every device must give this password to join a table.
-ROOM_PASSWORD = os.environ.get("ROOM_PASSWORD", "")
 
 ZONES = ("hand", "battlefield", "graveyard", "exile", "library", "command", "look")
 
@@ -708,27 +705,6 @@ async def set_commanders(room, ws, text):
         await notice(ws, "Not found: " + ", ".join(sorted(set(missing))[:4]) + ".")
 
 
-def clean_backup(d):
-    """A table backup that a device sends back after the server woke up empty. Returns a safe dict or None."""
-    if not isinstance(d, dict) or not isinstance(d.get("cards"), dict) or not (0 < len(d["cards"]) <= 400):
-        return None
-
-    def ok_img(u):
-        return isinstance(u, str) and len(u) < 4000 and (
-            u.startswith(IMG_PREFIXES) or u.startswith("/static/") or u.startswith("data:image/"))
-
-    for k, c in d["cards"].items():
-        if not isinstance(c, dict) or c.get("id") != k or not isinstance(k, str) or len(k) > 32:
-            return None
-        if not isinstance(c.get("name"), str) or not ok_img(c.get("img")) or not ok_img(c.get("thumb")):
-            return None
-        for extra in ("img2", "thumb2"):
-            if c.get(extra) and not ok_img(c.get(extra)):
-                c[extra] = ""
-        c["name"] = c["name"][:80]
-    return d
-
-
 def start_game(room):
     """Shuffle everything back, deal 7 and open the mulligan phase."""
     for cid in [i for i, c in room.cards.items() if c.get("token")]:
@@ -906,7 +882,7 @@ UNDOABLE = {
     "tracker_del", "ctr_add", "ctr_pos", "ctr_mod", "ctr_reset", "ctr_del",
 }
 UNDO_STEPS = 10
-VERSION = "v6.5"  # the app version; clients that run an older cached copy reload themselves
+VERSION = "v6.4"  # the app version; clients that run an older cached copy reload themselves
 
 
 async def handle(room, ws, d):
@@ -950,17 +926,6 @@ async def handle(room, ws, d):
             c["face"] = 0 if c.get("face") else 1  # a double-faced card: Flip shows its other face
         else:
             c["down"] = not c["down"]              # everything else (or a covered back side): face down
-    elif t == "restore":
-        # a device brings back the table it kept, but only into a table that is empty (the server woke up fresh)
-        if room.cards:
-            return
-        back = clean_backup(d.get("state"))
-        if not back:
-            await notice(ws, "That table backup was not valid, so it was not restored.")
-            return
-        room.restore(back)
-        room.hist.clear()
-        await notice(ws, "Your table was restored from this device's backup.")
     elif t == "set_commanders":
         await set_commanders(room, ws, str(d.get("commander", "")))
     elif t == "cover" and on_field and c.get("img2"):
@@ -1183,40 +1148,9 @@ async def handle(room, ws, d):
 # HTTP / WebSocket
 # ----------------------------------------------------------------------------
 
-BAD_TRIES = {}  # ip -> (count, since): a few wrong passwords in a row lock that address out for a while
-LOCKOUT_TRIES, LOCKOUT_SECONDS = 8, 300
-
-
-def password_ok(request):
-    """True when no password is needed or the right one was given (compared in constant time)."""
-    if not ROOM_PASSWORD:
-        return True
-    ip = request.headers.get("X-Forwarded-For", request.remote or "?").split(",")[0].strip()
-    count, since = BAD_TRIES.get(ip, (0, 0.0))
-    now = time.time()
-    if count >= LOCKOUT_TRIES and now - since < LOCKOUT_SECONDS:
-        return False
-    given = request.query.get("key", "")
-    if hmac.compare_digest(given.encode(), ROOM_PASSWORD.encode()):
-        BAD_TRIES.pop(ip, None)
-        return True
-    if now - since >= LOCKOUT_SECONDS:
-        count, since = 0, now  # an old streak of mistakes is forgotten
-    BAD_TRIES[ip] = (count + 1, since)
-    return False
-
-
-async def healthz(request):
-    return web.Response(text="ok")  # the hosting service asks this to see that the server is alive
-
-
 async def ws_handler(request):
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
-    if not password_ok(request):
-        await ws.send_str(json.dumps({"type": "auth", "ok": False}))
-        await ws.close(code=4401, message=b"password")
-        return ws
     code = re.sub(r"[^a-z0-9_-]", "", request.query.get("room", "table").lower())[:24] or "table"
     room = rooms.setdefault(code, Room(code))
     room.clients.add(ws)
@@ -1227,8 +1161,6 @@ async def ws_handler(request):
                 continue
             try:
                 data = json.loads(msg.data)
-                if isinstance(data, dict) and data.get("t") == "ping":
-                    continue  # keeps an idle connection (and a sleepy free server) awake; nothing to do
                 if isinstance(data, dict):
                     await handle(room, ws, data)
             except Exception:
@@ -1255,7 +1187,6 @@ def make_app():
     app = web.Application(middlewares=[nocache])
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
-    app.router.add_get("/healthz", healthz)
     app.router.add_static("/static/", STATIC)
     return app
 
@@ -1277,15 +1208,10 @@ if __name__ == "__main__":
     load_rooms()
     ip = lan_ip()
     print("")
-    if os.environ.get("RENDER"):  # running on Render: the address is the one Render shows, not a Wi-Fi one
-        print(f"Tabletop {VERSION} online server is running on port {PORT}.")
-    else:
-        print(f"Tabletop {VERSION} server is running. Open these on your devices (same Wi-Fi):")
-        print(f"  Tablet (Board): http://{ip}:{PORT}/?role=board&room=table")
-        print(f"  Phone  (Hand) : http://{ip}:{PORT}/?role=hand&room=table")
+    print(f"Tabletop {VERSION} server is running. Open these on your devices (same Wi-Fi):")
+    print(f"  Tablet (Board): http://{ip}:{PORT}/?role=board&room=table")
+    print(f"  Phone  (Hand) : http://{ip}:{PORT}/?role=hand&room=table")
     print(f"Tables are saved in: {DATA}")
-    if ROOM_PASSWORD:
-        print("Password protection is ON (add &key=<password> to the address, or type it when asked).")
     print("Press Ctrl+C to stop.")
     print("")
     web.run_app(make_app(), host="0.0.0.0", port=PORT, print=None)

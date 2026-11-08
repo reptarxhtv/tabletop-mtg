@@ -31,7 +31,7 @@ function holdTimer(e, fn) {
   if (isRightClick(e)) { fn(); return null; } // right button: no waiting
   return setTimeout(fn, HOLD_MS);
 }
-const VERSION = 'v6.5';
+const VERSION = 'v6.4';
 const BACK = '<div class="back"></div>';
 
 /* a double-faced card shows its other face only while it is flipped on the table */
@@ -80,64 +80,15 @@ function setStatus(on) {
   document.querySelectorAll('.dot').forEach(d => d.classList.toggle('on', on));
 }
 
-/* The table password (online servers only): from the address (&key=...) or what was typed once on this device */
-function tableKey() {
-  const fromUrl = new URLSearchParams(location.search).get('key');
-  if (fromUrl) return fromUrl;
-  try { return localStorage.getItem('tt-key') || ''; } catch (_) { return ''; }
-}
-
-function askPassword() {
-  const given = window.prompt('This table has a password:');
-  if (given === null) { toast('No password: not connected. Reload the page to try again.'); return; }
-  try { localStorage.setItem('tt-key', given); } catch (_) {}
-  const u = new URL(location.href);
-  u.searchParams.delete('key'); // a wrong key in the address must not shadow the one just typed
-  history.replaceState(null, '', u);
-  reconnectTimer = setTimeout(connect, 200);
-}
-
-/* ---- table backup: a free online server forgets the table when it sleeps; each device keeps a copy ---- */
-const BACKUP_KEY = () => 'tt-backup-' + room;
-let backupTimer = null;
-
-function saveBackupSoon(m) {
-  clearTimeout(backupTimer);
-  backupTimer = setTimeout(() => {
-    const keep = Object.assign({}, m);
-    ['type', 'room', 'undo', 'drew', 'milled', 'ver'].forEach(k => delete keep[k]);
-    try { localStorage.setItem(BACKUP_KEY(), JSON.stringify({ savedAt: Date.now(), state: keep })); } catch (_) {}
-  }, 1500);
-}
-
-function dropBackup() {
-  clearTimeout(backupTimer);
-  try { localStorage.removeItem(BACKUP_KEY()); } catch (_) {}
-}
-
-/* true when a backup was sent (the server answers with the restored table) */
-function sendBackup() {
-  let b = null;
-  try { b = JSON.parse(localStorage.getItem(BACKUP_KEY()) || 'null'); } catch (_) {}
-  if (!b || !b.state || !b.state.cards || !Object.keys(b.state.cards).length) return false;
-  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'restore', state: b.state }));
-  return true;
-}
-
-/* A small message every 25 seconds keeps the connection (and a sleepy free server) awake while you play */
-setInterval(() => { if (ws && ws.readyState === 1) ws.send('{"t":"ping"}'); }, 25000);
-
 function connect() {
   wantConnected = true;
   clearTimeout(reconnectTimer);
   if (ws && ws.readyState <= 1) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const key = tableKey();
-  ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(room)}${key ? '&key=' + encodeURIComponent(key) : ''}`);
+  ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(room)}`);
   ws.onopen = () => { gotState = false; setStatus(true); }; // after a reconnect, anything announced meanwhile is old news
-  ws.onclose = ev => {
+  ws.onclose = () => {
     setStatus(false);
-    if (ev.code === 4401) { askPassword(); return; }  // an online server asked for its password
     if (wantConnected) reconnectTimer = setTimeout(connect, 1500);
   };
   ws.onerror = () => {};
@@ -146,16 +97,10 @@ function connect() {
     try { m = JSON.parse(ev.data); } catch (_) { return; }
     if (m.type === 'state') {
       if (m.ver && m.ver !== VERSION && staleCopy(m.ver)) return;
-      const first = !gotState;
-      if (first) {  // the first state from the server: whatever was drawn or milled before is old news
+      if (!gotState) {  // the first state from the server: whatever was drawn or milled before is old news
         gotState = true;
         lastDrewSeq = (m.drew || {}).seq || 0; lastMilledSeq = (m.milled || {}).seq || 0;
       }
-      if (!Object.keys(m.cards || {}).length) {
-        // an empty table: a free server that woke up empty gets this device's backup back,
-        // but an empty table later in the same connection is a reset, so the backup goes too
-        if (!(first && sendBackup())) dropBackup();
-      } else saveBackupSoon(m);
       state = normalize(m); render();
     }
     else if (m.type === 'notice') toast(m.text);

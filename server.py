@@ -16,6 +16,7 @@ import random
 import re
 import shutil
 import socket
+import sys
 import time
 import urllib.request
 import uuid
@@ -1187,39 +1188,74 @@ BAD_TRIES = {}  # ip -> (count, since): a few wrong passwords in a row lock that
 LOCKOUT_TRIES, LOCKOUT_SECONDS = 8, 300
 
 
-def password_ok(request):
-    """True when no password is needed or the right one was given (compared in constant time)."""
+def check_password(request):
+    """'ok', or why not: 'missing' (no key given), 'wrong', 'locked' (too many wrong tries in a row)."""
     if not ROOM_PASSWORD:
-        return True
+        return "ok"
     ip = request.headers.get("X-Forwarded-For", request.remote or "?").split(",")[0].strip()
     count, since = BAD_TRIES.get(ip, (0, 0.0))
     now = time.time()
     if count >= LOCKOUT_TRIES and now - since < LOCKOUT_SECONDS:
-        return False
+        return "locked"
     given = request.query.get("key", "")
-    if hmac.compare_digest(given.encode(), ROOM_PASSWORD.encode()):
+    if given and hmac.compare_digest(given.encode(), ROOM_PASSWORD.encode()):
         BAD_TRIES.pop(ip, None)
-        return True
-    if now - since >= LOCKOUT_SECONDS:
-        count, since = 0, now  # an old streak of mistakes is forgotten
-    BAD_TRIES[ip] = (count + 1, since)
-    return False
+        return "ok"
+    if given:  # asking for the password (no key at all) is not a mistake; a wrong key is
+        if now - since >= LOCKOUT_SECONDS:
+            count, since = 0, now  # an old streak of mistakes is forgotten
+        BAD_TRIES[ip] = (count + 1, since)
+    return "wrong" if given else "missing"
+
+
+def password_ok(request):
+    return check_password(request) == "ok"
 
 
 async def healthz(request):
     return web.Response(text="ok")  # the hosting service asks this to see that the server is alive
 
 
+async def diag(request):
+    """/diag?key=...: checks that this server can reach Scryfall (useful when an online server cannot load a deck)."""
+    why = check_password(request)
+    if why != "ok":
+        return web.Response(status=401, text={
+            "missing": "No password in the address. Add ?key=<your password> at the end.",
+            "wrong": "That is not the password. Check Render > Environment > ROOM_PASSWORD (watch for spaces and symbols).",
+            "locked": "Too many wrong tries from this address: wait 5 minutes and try again.",
+        }[why])
+    out = {"version": VERSION, "python": sys.version.split()[0], "tests": {}}
+    tests = {
+        "scryfall_collection": ("POST", "https://api.scryfall.com/cards/collection", {"identifiers": [{"name": "Sol Ring"}]}),
+        "scryfall_search": ("GET", "https://api.scryfall.com/cards/search?q=name%3A%22Goblin%22+t%3Atoken", None),
+        "card_image_server": ("GET", "https://cards.scryfall.io/", None),
+    }
+    async with ClientSession(headers=SCRYFALL_HEADERS, timeout=ClientTimeout(total=15)) as s:
+        for name, (method, url, body) in tests.items():
+            t0 = time.time()
+            try:
+                async with s.request(method, url, json=body) as r:
+                    head = (await r.text())[:160].replace("\n", " ")
+                    out["tests"][name] = {"status": r.status, "seconds": round(time.time() - t0, 2), "start_of_answer": head}
+            except Exception as exc:
+                out["tests"][name] = {"error": f"{type(exc).__name__}: {exc}", "seconds": round(time.time() - t0, 2)}
+    return web.json_response(out)
+
+
 async def ws_handler(request):
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
-    if not password_ok(request):
+    why = check_password(request)
+    if why != "ok":
+        log.warning("Password refused (%s)", why)
         await ws.send_str(json.dumps({"type": "auth", "ok": False}))
         await ws.close(code=4401, message=b"password")
         return ws
     code = re.sub(r"[^a-z0-9_-]", "", request.query.get("room", "table").lower())[:24] or "table"
     room = rooms.setdefault(code, Room(code))
     room.clients.add(ws)
+    log.info("Client connected to room %s (%d now)", code, len(room.clients))
     await ws.send_str(json.dumps(room.snapshot()))
     try:
         async for msg in ws:
@@ -1237,6 +1273,7 @@ async def ws_handler(request):
                 await notice(ws, "Something went wrong on the server (details in data/server.log).")
     finally:
         room.clients.discard(ws)
+        log.info("Client left room %s (close code %s, %d left)", code, ws.close_code, len(room.clients))
     return ws
 
 
@@ -1256,6 +1293,7 @@ def make_app():
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/healthz", healthz)
+    app.router.add_get("/diag", diag)
     app.router.add_static("/static/", STATIC)
     return app
 

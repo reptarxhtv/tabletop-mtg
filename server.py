@@ -16,7 +16,6 @@ import random
 import re
 import shutil
 import socket
-import sys
 import time
 import urllib.request
 import uuid
@@ -1211,28 +1210,6 @@ async def healthz(request):
     return web.Response(text="ok")  # the hosting service asks this to see that the server is alive
 
 
-async def diag(request):
-    """/diag?key=...: checks that this server can reach Scryfall (useful when an online server cannot load a deck)."""
-    if not password_ok(request):
-        return web.Response(status=401, text="password needed: add ?key=<your password>")
-    out = {"version": VERSION, "python": sys.version.split()[0], "tests": {}}
-    tests = {
-        "scryfall_collection": ("POST", "https://api.scryfall.com/cards/collection", {"identifiers": [{"name": "Sol Ring"}]}),
-        "scryfall_search": ("GET", "https://api.scryfall.com/cards/search?q=name%3A%22Goblin%22+t%3Atoken", None),
-        "card_image_server": ("GET", "https://cards.scryfall.io/", None),
-    }
-    async with ClientSession(headers=SCRYFALL_HEADERS, timeout=ClientTimeout(total=15)) as s:
-        for name, (method, url, body) in tests.items():
-            t0 = time.time()
-            try:
-                async with s.request(method, url, json=body) as r:
-                    head = (await r.text())[:160].replace("\n", " ")
-                    out["tests"][name] = {"status": r.status, "seconds": round(time.time() - t0, 2), "start_of_answer": head}
-            except Exception as exc:
-                out["tests"][name] = {"error": f"{type(exc).__name__}: {exc}", "seconds": round(time.time() - t0, 2)}
-    return web.json_response(out)
-
-
 async def ws_handler(request):
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
@@ -1279,7 +1256,6 @@ def make_app():
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/healthz", healthz)
-    app.router.add_get("/diag", diag)
     app.router.add_static("/static/", STATIC)
     return app
 

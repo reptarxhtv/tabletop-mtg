@@ -137,10 +137,11 @@ function connect() {
   ws.onopen = () => { gotState = false; setStatus(true); }; // after a reconnect, anything announced meanwhile is old news
   ws.onclose = ev => {
     setStatus(false);
+    if (ev.code !== 4401) toast('Disconnected (code ' + ev.code + (ev.reason ? ': ' + ev.reason : '') + '), retrying...');
     if (ev.code === 4401) { askPassword(); return; }  // an online server asked for its password
     if (wantConnected) reconnectTimer = setTimeout(connect, 1500);
   };
-  ws.onerror = () => {};
+  ws.onerror = () => { toast('Connection error'); };
   ws.onmessage = ev => {
     let m;
     try { m = JSON.parse(ev.data); } catch (_) { return; }
@@ -175,7 +176,7 @@ function staleCopy(serverVer) {
 
 function send(o) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
-  else toast('Not connected to the server');
+  else toast('Not connected to the server (socket state ' + (ws ? ws.readyState : 'none') + ')');
 }
 
 document.addEventListener('visibilitychange', () => {

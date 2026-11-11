@@ -3,7 +3,7 @@
 You put the app on the internet once. After that, the tablet and the iPhone only need internet,
 and your PC can stay off. It is free. Setup takes about 15 minutes.
 
-How it works: the server runs on Render (a hosting service). Your table is protected by a password.
+How it works: the server runs on Render (a hosting service). Every room (table) has its own password, so several groups can play at the same time.
 A free Render server falls asleep after 15 minutes without anyone connected and forgets its files, so
 **each of your devices keeps a copy of the table** and gives it back when the server wakes up.
 
@@ -28,26 +28,28 @@ A free Render server falls asleep after 15 minutes without anyone connected and 
 1. Go to render.com and click **Get Started**. Sign up **with GitHub** and allow it to see your
    `tabletop-mtg` repository.
 2. Click **New +** > **Blueprint**, choose the `tabletop-mtg` repository and click **Connect**.
-3. Render reads `render.yaml` and asks for **ROOM_PASSWORD**. Type a password for your table.
-   Use only letters and numbers (no `&`, `#`, `%` or spaces) and make it long, for example `blue7dragon42table`.
+3. Render reads `render.yaml`. It needs no password here: passwords belong to each room (Part C).
 4. Click **Apply** (or **Deploy**) and wait a few minutes until the service says **Live**.
 5. Copy the address at the top of the service page. It looks like `https://tabletop-mtg-abcd.onrender.com`.
 
 If Render asks for a credit card at step 2 or 4, stop there. Use **New +** > **Web Service** instead:
 the same repository, Language **Python 3**, Build Command `pip install -r requirements.txt`,
-Start Command `python server.py`, Instance Type **Free**, Health Check Path `/healthz`, and under
-Environment add `ROOM_PASSWORD`. If it still asks for a card, tell me what the page says.
+Start Command `python server.py`, Instance Type **Free** and Health Check Path `/healthz`.
+If it still asks for a card, tell me what the page says.
 
 ## Part C: use it on your devices
 
-Replace `ADDRESS` with your Render address and `PASSWORD` with your password.
+Open your Render address (`https://tabletop-mtg-abcd.onrender.com`) on each device.
 
-- Tablet (board): `ADDRESS/?role=board&room=table&key=PASSWORD`
-- iPhone (hand): `ADDRESS/?role=hand&room=table&key=PASSWORD`
+1. Type a **Room code** (any name, for example `friday`) and a **Room password**.
+   The first device to open a new room sets its password. Every other device must type the same one.
+2. Tap **Board** on the tablet and **Hand** on the iPhone. The device remembers the password for that room.
+3. Another group can use a different room code and its own password: the tables never mix.
+4. iPhone: Safari > **Share > Add to Home Screen**. Tablet: Chrome menu > **Add to Home screen** / **Install app**.
+5. Load your deck on the tablet as usual (**New game**).
 
-1. Open each address once. The device remembers the password. If you forget `&key=...`, the page asks for it.
-2. iPhone: Safari > **Share > Add to Home Screen**. Tablet: Chrome menu > **Add to Home screen** / **Install app**.
-3. Load your deck on the tablet as usual (**New game**).
+Tip: a free server forgets everything after it sleeps, including which room has which password. Open your room
+first when you come back, so nobody else can claim the name.
 
 ## Every game night
 
@@ -66,8 +68,8 @@ ones) and **Commit changes**. Render updates the server by itself in a few minut
 
 ## If something goes wrong
 
-- **"This table has a password" keeps coming back:** the password is wrong. Open the address with the right
-  `&key=...` once. The password is kept in Render > your service > **Environment**.
+- **The page keeps asking for the room password:** it is not the one the room was created with. Ask whoever
+  opened the room first, or use a new room code.
 - **A message says the device shows an old copy:** close the app or clear that browser's cache and open it again.
 - **The page never loads:** Render > your service > **Logs** shows what happened. Send me what it says.
 - **Cards have no pictures:** the devices load pictures from Scryfall, so they need internet.

@@ -29,7 +29,7 @@ The version is shown in the **...** menu title.
 ## Play without your PC
 
 `ONLINE_GUIDE.md` explains how to put the app on a free online server (Render) so only the tablet and the
-iPhone are needed. The server asks for a password (`ROOM_PASSWORD`), keeps itself awake while you play, and your
+iPhone are needed. Every room has its own password (whoever opens a new room first sets it), the server keeps itself awake while you play, and your
 devices keep a copy of the table in case the free server forgets it.
 
 ## iPhone: make it look like an app

@@ -8,6 +8,7 @@ state to the data/ folder after every change so a crash or restart never
 loses the table.
 """
 import asyncio
+import hashlib
 import hmac
 import json
 import logging
@@ -533,6 +534,7 @@ def after_look_change(room):
 
 
 def do_move(room, c, to, down=False, where=None, x=None, y=None, tapped=False):
+    was_down = bool(c.get("down"))  # a card dropped into a custom zone stays face up or face down as it was
     custom = to in room.czones
     if (to not in ZONES and not custom) or to == "look":
         return
@@ -574,6 +576,7 @@ def do_move(room, c, to, down=False, where=None, x=None, y=None, tapped=False):
         room.zones[to].append(cid)
         room.zones[to].sort(key=lambda i: room.cards[i]["slot"])
     else:
+        c["down"] = was_down if custom else False
         room.zones[to].append(cid)
     after_look_change(room)
 
@@ -907,7 +910,7 @@ UNDOABLE = {
     "tracker_del", "ctr_add", "ctr_pos", "ctr_mod", "ctr_reset", "ctr_del",
 }
 UNDO_STEPS = 10
-VERSION = "v6.5"  # the app version; clients that run an older cached copy reload themselves
+VERSION = "v6.6"  # the app version; clients that run an older cached copy reload themselves
 
 
 async def handle(room, ws, d):
@@ -1188,17 +1191,66 @@ BAD_TRIES = {}  # ip -> (count, since): a few wrong passwords in a row lock that
 LOCKOUT_TRIES, LOCKOUT_SECONDS = 8, 300
 
 
-def check_password(request):
-    """'ok', or why not: 'missing' (no key given), 'wrong', 'locked' (too many wrong tries in a row)."""
-    if not ROOM_PASSWORD:
-        return "ok"
+ROOM_PW = {}  # room code -> {"salt": hex, "hash": hex}: each table has its own password (set by whoever opens it first)
+REQUIRE_PW = bool(ROOM_PASSWORD) or bool(os.environ.get("RENDER")) or os.environ.get("TT_REQUIRE_PASSWORD") == "1"
+
+
+def room_code(request):
+    return re.sub(r"[^a-z0-9_-]", "", request.query.get("room", "table").lower())[:24] or "table"
+
+
+def _hash_pw(password, salt):
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 120_000).hex()
+
+
+def _pw_path(code):
+    return DATA / f"{code}.pw"
+
+
+def load_passwords():
+    if DATA.exists():
+        for p in DATA.glob("*.pw"):
+            try:
+                ROOM_PW[p.stem] = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                log.exception("Could not read %s", p)
+
+
+def set_room_password(code, password):
+    salt = os.urandom(16)
+    rec = {"salt": salt.hex(), "hash": _hash_pw(password, salt)}
+    ROOM_PW[code] = rec
+    try:
+        DATA.mkdir(parents=True, exist_ok=True)
+        _pw_path(code).write_text(json.dumps(rec), encoding="utf-8")
+    except Exception:
+        log.exception("Could not save the password of room %s", code)
+
+
+def check_password(request, claim=True):
+    """'ok', or why not: 'missing' (no password given), 'wrong', 'locked' (too many wrong tries in a row).
+    The first person to open a room with a password sets it (claim=False: only check, never set)."""
+    code = room_code(request)
+    given = request.query.get("key", "")
+    if ROOM_PASSWORD and given and hmac.compare_digest(given.encode(), ROOM_PASSWORD.encode()):
+        return "ok"  # the optional master password opens every room
     ip = request.headers.get("X-Forwarded-For", request.remote or "?").split(",")[0].strip()
     count, since = BAD_TRIES.get(ip, (0, 0.0))
     now = time.time()
     if count >= LOCKOUT_TRIES and now - since < LOCKOUT_SECONDS:
         return "locked"
-    given = request.query.get("key", "")
-    if given and hmac.compare_digest(given.encode(), ROOM_PASSWORD.encode()):
+    rec = ROOM_PW.get(code)
+    if rec is None:
+        if not REQUIRE_PW:
+            return "ok"  # a home server on your own Wi-Fi: no password needed
+        if not given:
+            return "missing"
+        if not claim:
+            return "wrong"
+        set_room_password(code, given)
+        log.info("Room '%s' created with a new password", code)
+        return "ok"
+    if given and hmac.compare_digest(_hash_pw(given, bytes.fromhex(rec["salt"])), rec["hash"]):
         BAD_TRIES.pop(ip, None)
         return "ok"
     if given:  # asking for the password (no key at all) is not a mistake; a wrong key is
@@ -1218,11 +1270,11 @@ async def healthz(request):
 
 async def diag(request):
     """/diag?key=...: checks that this server can reach Scryfall (useful when an online server cannot load a deck)."""
-    why = check_password(request)
+    why = check_password(request, claim=False)
     if why != "ok":
         return web.Response(status=401, text={
-            "missing": "No password in the address. Add ?key=<your password> at the end.",
-            "wrong": "That is not the password. Check Render > Environment > ROOM_PASSWORD (watch for spaces and symbols).",
+            "missing": "No password in the address. Add ?room=<room>&key=<that room's password> at the end.",
+            "wrong": "That is not the password of that room (add ?room=<room>&key=<password>).",
             "locked": "Too many wrong tries from this address: wait 5 minutes and try again.",
         }[why])
     out = {"version": VERSION, "python": sys.version.split()[0], "tests": {}}
@@ -1252,7 +1304,7 @@ async def ws_handler(request):
         await ws.send_str(json.dumps({"type": "auth", "ok": False}))
         await ws.close(code=4401, message=b"password")
         return ws
-    code = re.sub(r"[^a-z0-9_-]", "", request.query.get("room", "table").lower())[:24] or "table"
+    code = room_code(request)
     room = rooms.setdefault(code, Room(code))
     room.clients.add(ws)
     log.info("Client connected to room %s (%d now)", code, len(room.clients))
@@ -1313,6 +1365,7 @@ if __name__ == "__main__":
     setup_logging()
     ensure_card_back()
     load_rooms()
+    load_passwords()
     ip = lan_ip()
     print("")
     if os.environ.get("RENDER"):  # running on Render: the address is the one Render shows, not a Wi-Fi one
@@ -1322,8 +1375,8 @@ if __name__ == "__main__":
         print(f"  Tablet (Board): http://{ip}:{PORT}/?role=board&room=table")
         print(f"  Phone  (Hand) : http://{ip}:{PORT}/?role=hand&room=table")
     print(f"Tables are saved in: {DATA}")
-    if ROOM_PASSWORD:
-        print("Password protection is ON (add &key=<password> to the address, or type it when asked).")
+    if REQUIRE_PW:
+        print("Passwords are ON: whoever opens a room first sets its password (add &key=<password> to the address, or type it when asked).")
     print("Press Ctrl+C to stop.")
     print("")
     web.run_app(make_app(), host="0.0.0.0", port=PORT, print=None)

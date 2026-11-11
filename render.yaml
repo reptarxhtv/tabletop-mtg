@@ -7,6 +7,4 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python server.py
     healthCheckPath: /healthz
-    envVars:
-      - key: ROOM_PASSWORD
-        sync: false        # Render asks you for this value when you create the service: pick a password for your table
+    # Optional: add an environment variable ROOM_PASSWORD in Render to get a master password that opens every room.

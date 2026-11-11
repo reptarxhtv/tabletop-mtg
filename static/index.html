@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f1115">
 <title>Tabletop</title>
-<link rel="stylesheet" href="/static/style.css?v=6.5">
+<link rel="stylesheet" href="/static/style.css?v=6.6">
 </head>
 <body>
 
@@ -18,6 +18,8 @@
   <p class="mut">Pick what this device is.</p>
   <label for="room-input">Room code</label>
   <input id="room-input" maxlength="24" autocomplete="off" autocapitalize="off" spellcheck="false" value="table">
+  <label for="pw-input">Room password</label>
+  <input id="pw-input" type="password" maxlength="60" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="a new room? this sets its password">
   <div class="bigbtns">
     <button id="btn-board" class="primary big">Board<small>tablet</small></button>
     <button id="btn-hand" class="primary big">Hand<small>phone</small></button>
@@ -96,13 +98,13 @@
         <div class="slot" id="z-library"></div>
       </div>
       <div class="panel">
-        <div><span class="dot"></span> <span id="b-room" class="mut"></span> <span class="mut ver">v6.5</span></div>
+        <div><span class="dot"></span> <span id="b-room" class="mut"></span> <span class="mut ver">v6.6</span></div>
         <button id="b-menu">&#9776; Menu</button>
       </div>
     </div>
   </aside>
 </section>
 
-<script src="/static/app.js?v=6.5"></script>
+<script src="/static/app.js?v=6.6"></script>
 </body>
 </html>

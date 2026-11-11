@@ -31,7 +31,7 @@ function holdTimer(e, fn) {
   if (isRightClick(e)) { fn(); return null; } // right button: no waiting
   return setTimeout(fn, HOLD_MS);
 }
-const VERSION = 'v6.5';
+const VERSION = 'v6.6';
 const BACK = '<div class="back"></div>';
 
 /* a double-faced card shows its other face only while it is flipped on the table */
@@ -84,13 +84,14 @@ function setStatus(on) {
 function tableKey() {
   const fromUrl = new URLSearchParams(location.search).get('key');
   if (fromUrl) return fromUrl;
-  try { return localStorage.getItem('tt-key') || ''; } catch (_) { return ''; }
+  try { return localStorage.getItem('tt-key-' + room) || ''; } catch (_) { return ''; }
 }
 
 function askPassword() {
-  const given = window.prompt('This table has a password:');
+  try { localStorage.removeItem('tt-key-' + room); } catch (_) {}  // the saved one was refused
+  const given = window.prompt('Password for room "' + room + '" (a room that is new gets this password):');
   if (given === null) { toast('No password: not connected. Reload the page to try again.'); return; }
-  try { localStorage.setItem('tt-key', given); } catch (_) {}
+  try { localStorage.setItem('tt-key-' + room, given); } catch (_) {}
   const u = new URL(location.href);
   u.searchParams.delete('key'); // a wrong key in the address must not shadow the one just typed
   history.replaceState(null, '', u);
@@ -127,6 +128,7 @@ function sendBackup() {
 /* A small message every 25 seconds keeps the connection (and a sleepy free server) awake while you play */
 setInterval(() => { if (ws && ws.readyState === 1) ws.send('{"t":"ping"}'); }, 25000);
 
+let authRefused = false;
 function connect() {
   wantConnected = true;
   clearTimeout(reconnectTimer);
@@ -137,6 +139,7 @@ function connect() {
   ws.onopen = () => { gotState = false; setStatus(true); }; // after a reconnect, anything announced meanwhile is old news
   ws.onclose = ev => {
     setStatus(false);
+    if (authRefused) { authRefused = false; askPassword(); return; }  // some hosts turn our 4401 close code into 1006
     if (ev.code !== 4401) toast('Disconnected (code ' + ev.code + (ev.reason ? ': ' + ev.reason : '') + '), retrying...');
     if (ev.code === 4401) { askPassword(); return; }  // an online server asked for its password
     if (wantConnected) reconnectTimer = setTimeout(connect, 1500);
@@ -159,6 +162,7 @@ function connect() {
       } else saveBackupSoon(m);
       state = normalize(m); render();
     }
+    else if (m.type === 'auth' && !m.ok) authRefused = true;
     else if (m.type === 'notice') toast(m.text);
     else if (m.type === 'token_results') showTokenResults(m);
   };
@@ -831,7 +835,7 @@ function renderViewer() {
   list.forEach((c, i) => {
     const t = mk('div', 'tile', imgHTML(c, 'thumb') + `<span>${esc(c.name)}</span>`);
     if (z === 'library' && i === 0 && !f) t.classList.add('top');
-    if (z === 'exile' && c.down) t.classList.add('fd');
+    if ((z === 'exile' || (state.czones && state.czones[z])) && c.down) t.classList.add('fd');
     bindTile(t, c.id);
     grid.appendChild(t);
   });
@@ -1650,7 +1654,7 @@ function renderCZones() {
     const slot = n.querySelector('.slot');
     slot._cid = top ? top.id : null;
     slot.className = 'slot' + (top ? '' : ' empty');
-    const html = top ? imgHTML(top) + `<span class="count">${list.length}</span>` : '';
+    const html = top ? (top.down ? BACK : imgHTML(top)) + `<span class="count">${list.length}</span>` : '';
     if (slot._html !== html) { slot._html = html; slot.innerHTML = html; }
     n.querySelector('.czname').textContent = zs[id];
   });
@@ -1748,9 +1752,10 @@ function render() {
   if (counterId) renderCounters();
 }
 
-function start(r, roomName) {
+function start(r, roomName, pw) {
   role = r;
   room = (roomName || 'table').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 24) || 'table';
+  if (pw) { try { localStorage.setItem('tt-key-' + room, pw); } catch (_) {} }
   try { localStorage.setItem('tt-room', room); } catch (_) {}
   $('#connect').hidden = true;
   if (role === 'hand') {
@@ -1774,8 +1779,15 @@ function init() {
   $('#room-input').value = r;
   const wanted = q.get('role');
   if (wanted === 'hand' || wanted === 'board') { start(wanted, r); return; }
-  $('#btn-board').onclick = () => start('board', $('#room-input').value);
-  $('#btn-hand').onclick = () => start('hand', $('#room-input').value);
+  const pwBox = $('#pw-input');
+  const fillPw = () => {  // a password already typed on this device for that room is shown again
+    const name = $('#room-input').value.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 24) || 'table';
+    try { pwBox.value = localStorage.getItem('tt-key-' + name) || ''; } catch (_) {}
+  };
+  fillPw();
+  $('#room-input').addEventListener('input', fillPw);
+  $('#btn-board').onclick = () => start('board', $('#room-input').value, pwBox.value);
+  $('#btn-hand').onclick = () => start('hand', $('#room-input').value, pwBox.value);
 }
 
 init();

@@ -31,7 +31,7 @@ function holdTimer(e, fn) {
   if (isRightClick(e)) { fn(); return null; } // right button: no waiting
   return setTimeout(fn, HOLD_MS);
 }
-const VERSION = 'v6.6';
+const VERSION = 'v6.7';
 const BACK = '<div class="back"></div>';
 
 /* a double-faced card shows its other face only while it is flipped on the table */
@@ -89,7 +89,12 @@ function tableKey() {
 
 function askPassword() {
   try { localStorage.removeItem('tt-key-' + room); } catch (_) {}  // the saved one was refused
-  const given = window.prompt('Password for room "' + room + '" (a room that is new gets this password):');
+  const msg = authWhy === 'locked'
+    ? 'Too many wrong tries. Wait 5 minutes and try again.'
+    : authWhy === 'wrong'
+      ? 'Room "' + room + '" is in use with another password. Type its password, or press Cancel and pick another room name. (A room nobody has used for 10 minutes becomes free again.)'
+      : 'Password for room "' + room + '" (a new or unused room gets the password you type):';
+  const given = window.prompt(msg);
   if (given === null) { toast('No password: not connected. Reload the page to try again.'); return; }
   try { localStorage.setItem('tt-key-' + room, given); } catch (_) {}
   const u = new URL(location.href);
@@ -128,7 +133,7 @@ function sendBackup() {
 /* A small message every 25 seconds keeps the connection (and a sleepy free server) awake while you play */
 setInterval(() => { if (ws && ws.readyState === 1) ws.send('{"t":"ping"}'); }, 25000);
 
-let authRefused = false;
+let authRefused = false, authWhy = '';
 function connect() {
   wantConnected = true;
   clearTimeout(reconnectTimer);
@@ -162,7 +167,7 @@ function connect() {
       } else saveBackupSoon(m);
       state = normalize(m); render();
     }
-    else if (m.type === 'auth' && !m.ok) authRefused = true;
+    else if (m.type === 'auth' && !m.ok) { authRefused = true; authWhy = m.why || ''; }
     else if (m.type === 'notice') toast(m.text);
     else if (m.type === 'token_results') showTokenResults(m);
   };

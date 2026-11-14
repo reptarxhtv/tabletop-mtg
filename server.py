@@ -388,6 +388,7 @@ class Room:
         self.milled = {"n": 0, "seq": 0}          # the last mill, announced the same way
         self.clients = set()
         self.loading = False
+        self.idle_since = time.time()             # when the last device left (a room nobody uses frees its name)
 
     def to_dict(self):
         return {"cards": self.cards, "zones": self.zones, "tax": self.tax,
@@ -910,7 +911,7 @@ UNDOABLE = {
     "tracker_del", "ctr_add", "ctr_pos", "ctr_mod", "ctr_reset", "ctr_del",
 }
 UNDO_STEPS = 10
-VERSION = "v6.6"  # the app version; clients that run an older cached copy reload themselves
+VERSION = "v6.7"  # the app version; clients that run an older cached copy reload themselves
 
 
 async def handle(room, ws, d):
@@ -1189,6 +1190,7 @@ async def handle(room, ws, d):
 
 BAD_TRIES = {}  # ip -> (count, since): a few wrong passwords in a row lock that address out for a while
 LOCKOUT_TRIES, LOCKOUT_SECONDS = 8, 300
+ROOM_IDLE_SECONDS = 60 * float(os.environ.get("TT_ROOM_IDLE_MIN", "10"))  # nobody connected this long: the room name is free again
 
 
 ROOM_PW = {}  # room code -> {"salt": hex, "hash": hex}: each table has its own password (set by whoever opens it first)
@@ -1240,24 +1242,43 @@ def check_password(request, claim=True):
     if count >= LOCKOUT_TRIES and now - since < LOCKOUT_SECONDS:
         return "locked"
     rec = ROOM_PW.get(code)
-    if rec is None:
+    if rec is not None and given and hmac.compare_digest(_hash_pw(given, bytes.fromhex(rec["salt"])), rec["hash"]):
+        BAD_TRIES.pop(ip, None)
+        return "ok"
+    if rec is None or room_is_free(code):
+        # a name nobody is using (never used, or nobody connected for a while) can be taken with any password
         if not REQUIRE_PW:
             return "ok"  # a home server on your own Wi-Fi: no password needed
         if not given:
             return "missing"
         if not claim:
             return "wrong"
+        if rec is not None:
+            log.info("Room '%s' was idle: it is free again and starts empty", code)
+            rooms.pop(code, None)
+            wipe_room_files(code)
         set_room_password(code, given)
-        log.info("Room '%s' created with a new password", code)
-        return "ok"
-    if given and hmac.compare_digest(_hash_pw(given, bytes.fromhex(rec["salt"])), rec["hash"]):
-        BAD_TRIES.pop(ip, None)
+        log.info("Room '%s' taken with a new password", code)
         return "ok"
     if given:  # asking for the password (no key at all) is not a mistake; a wrong key is
         if now - since >= LOCKOUT_SECONDS:
             count, since = 0, now  # an old streak of mistakes is forgotten
         BAD_TRIES[ip] = (count + 1, since)
     return "wrong" if given else "missing"
+
+
+def room_is_free(code):
+    """True when nobody is connected to the room and nobody has been for a while."""
+    r = rooms.get(code)
+    return r is None or (not r.clients and time.time() - r.idle_since >= ROOM_IDLE_SECONDS)
+
+
+def wipe_room_files(code):
+    for suffix in (".json", ".json.bak", ".json.tmp", ".actions.log", ".pw"):
+        try:
+            (DATA / f"{code}{suffix}").unlink()
+        except OSError:
+            pass
 
 
 def password_ok(request):
@@ -1301,7 +1322,7 @@ async def ws_handler(request):
     why = check_password(request)
     if why != "ok":
         log.warning("Password refused (%s)", why)
-        await ws.send_str(json.dumps({"type": "auth", "ok": False}))
+        await ws.send_str(json.dumps({"type": "auth", "ok": False, "why": why}))
         await ws.close(code=4401, message=b"password")
         return ws
     code = room_code(request)
@@ -1325,6 +1346,8 @@ async def ws_handler(request):
                 await notice(ws, "Something went wrong on the server (details in data/server.log).")
     finally:
         room.clients.discard(ws)
+        if not room.clients:
+            room.idle_since = time.time()
         log.info("Client left room %s (close code %s, %d left)", code, ws.close_code, len(room.clients))
     return ws
 

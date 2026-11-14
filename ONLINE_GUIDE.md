@@ -44,12 +44,14 @@ Open your Render address (`https://tabletop-mtg-abcd.onrender.com`) on each devi
 1. Type a **Room code** (any name, for example `friday`) and a **Room password**.
    The first device to open a new room sets its password. Every other device must type the same one.
 2. Tap **Board** on the tablet and **Hand** on the iPhone. The device remembers the password for that room.
-3. Another group can use a different room code and its own password: the tables never mix.
+3. A room name belongs to **one password at a time**. While anyone is connected, nobody else can use that name
+   with another password. When nobody has been in a room for 10 minutes, the name is free again: the next person
+   to type it with any password gets a fresh, empty table. Another group can simply use a different room code.
 4. iPhone: Safari > **Share > Add to Home Screen**. Tablet: Chrome menu > **Add to Home screen** / **Install app**.
 5. Load your deck on the tablet as usual (**New game**).
 
 Tip: a free server forgets everything after it sleeps, including which room has which password. Open your room
-first when you come back, so nobody else can claim the name.
+first when you come back, so nobody else can take the name.
 
 ## Every game night
 
